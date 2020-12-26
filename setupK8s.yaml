@@ -26,10 +26,28 @@
     apt:
          pkg:
          - "docker.io"
-         - "kubeadm"
+         - "kubeadm=1.19.6-00"
+         - "kubelet=1.19.6-00"
+         - "kubectl=1.19.6-00"
          state: present
          update_cache: yes
+         force: yes
 
+  - name: "Hold kubeadm package version"
+    dpkg_selections:
+      name: kubeadm
+      selection: hold
+
+  - name: "Hold kubectl package version"
+    dpkg_selections:
+      name: kubectl
+      selection: hold
+  
+  - name: "Hold kubelet package version"
+    dpkg_selections:
+      name: kubelet
+      selection: hold
+  
   - name: "Enable docker"
     systemd:
          name: 'docker'
@@ -72,7 +90,7 @@
     register: k8s_cluster_status
 
   - name: Init cluster
-    command: "kubeadm init --control-plane-endpoint k8smaster:6443 --pod-network-cidr 192.168.168.0/24 --service-cidr 192.168.172.0/24 --token {{ bootstrap_token }} --upload-certs"
+    command: "kubeadm init --control-plane-endpoint k8smaster:6443 --pod-network-cidr 10.100.0.0/16 --service-cidr 10.200.0.0/16 --token {{ bootstrap_token }} --upload-certs"
     when: not k8s_cluster_status.stat.exists
 
   - name: Check .kube dir

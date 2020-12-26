@@ -18,8 +18,8 @@ Vagrant.configure("2") do |config|
         
         node.vm.provider "virtualbox" do |master|
             master.name = "K8sMaster-#{LAB_NAME}"
-            master.cpus = 3
-            master.memory = 6144
+            master.cpus = 2
+            master.memory = 4096
         end
     end
     
