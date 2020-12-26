@@ -1,0 +1,134 @@
+---
+- name: "Distribute master ip"
+  hosts: master
+  tasks:
+  - name: "distribute ip"
+    set_fact:
+        master_ip: "{{ ansible_enp0s8.ipv4.address }}"
+
+- name: Install K8s
+  hosts: all
+  become: true
+  vars:
+    master_ip: "{{ hostvars['master']['master_ip'] }}"
+  tasks:
+  - name: Add k8s apt key
+    apt_key:
+         state: present
+         url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+  - name: Add k8s repo
+    apt_repository:
+         state: present
+         repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+
+  - name: "Install docker & K8s"
+    apt:
+         pkg:
+         - "docker.io"
+         - "kubeadm"
+         state: present
+         update_cache: yes
+
+  - name: "Enable docker"
+    systemd:
+         name: 'docker'
+         enabled: yes
+         state: started
+
+  - name: "Disable swap"
+    command: swapoff -a
+
+  - name: "Master IP"
+    debug:
+            msg: "{{ master_ip }}"
+  - name: "Check if master is in resolv.conf"
+    lineinfile:
+        path: /etc/hosts
+        line: "{{ master_ip }} k8master"
+        state: absent
+    check_mode: yes
+    changed_when: false
+    register: resolvlookup
+
+  - name: "Add master to resolv.conf"
+    lineinfile:
+        path: /etc/hosts
+        line: "{{ master_ip }} k8smaster"
+        insertbefore: "^127.+"
+        state: present
+        firstmatch: yes
+    changed_when: not resolvlookup.found
+
+- name: Start cluster on Master
+  hosts: master
+  become: true
+  vars:
+    bootstrap_token: "{{ lookup('password', '/dev/null length=6 chars=ascii_lowercase,digits') }}.{{ lookup('password', '/dev/null length=16 chars=ascii_lowercase,digits') }}"
+  tasks:
+  - name: "Check cluster status"
+    stat:
+      path: "/etc/kubernetes/admin.conf"
+    register: k8s_cluster_status
+
+  - name: Init cluster
+    command: "kubeadm init --control-plane-endpoint k8smaster:6443 --pod-network-cidr 192.168.168.0/24 --service-cidr 192.168.172.0/24 --token {{ bootstrap_token }} --upload-certs"
+    when: not k8s_cluster_status.stat.exists
+
+  - name: Check .kube dir
+    file:
+      state: directory
+      path: "/home/vagrant/.kube/"
+      owner: vagrant
+      group: vagrant
+
+  - name: Copy kube config file
+    copy:
+      src: "/etc/kubernetes/admin.conf"
+      dest: "/home/vagrant/.kube/config"
+      remote_src: yes
+      owner: vagrant
+      group: vagrant
+      mode: '0600'
+  
+  - name: "Node list"
+    become: yes
+    become_user: vagrant
+    command: kubectl get nodes
+    register: k8s_node_list
+
+  - name: "Genereta discovery token ca cert hash"
+    shell: > 
+        openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt |
+        openssl rsa -pubin -outform der 2>/dev/null |
+        openssl dgst -sha256 -hex |
+        sed 's/ˆ.* //' |
+        cut -d' ' -f2
+    register: ca_cert_hash
+
+  - name: "Retrieve bootstratp token"
+    shell: >
+        kubeadm token list |
+        grep authentication |
+        cut -d' ' -f1
+    register: real_bootstrap_token
+
+  - name: "Set join string"
+    set_fact:
+      join_string: "--token {{ real_bootstrap_token.stdout }} k8smaster:6443 --discovery-token-ca-cert-hash sha256:{{ca_cert_hash.stdout}}"
+
+- name: Join worker
+  hosts: worker
+  serial: 1
+  become: yes
+  tasks:
+  - name: "Join"
+    debug:
+      msg: "{{ ansible_hostname }} {{hostvars['master']['k8s_node_list'].stdout }}"
+    when: "ansible_hostname not in hostvars['master']['k8s_node_list'].stdout"
+
+  - name: "Join"
+    shell:
+      cmd: "kubeadm join {{ hostvars['master']['join_string'] }}"
+    when: "ansible_hostname not in hostvars['master']['k8s_node_list'].stdout"
+
