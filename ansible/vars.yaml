@@ -1,0 +1,7 @@
+---
+k8s_version: 1.19.6-00
+pods_cidr: 10.100.0.0/16
+service_cidr: 10.200.0.0/16
+# overlay_network: [none,calico]
+overlay_network: "calico"
+# bootstrap_token: abcdef.1234567989abcdef
