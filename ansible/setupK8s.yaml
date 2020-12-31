@@ -231,3 +231,28 @@
       cmd: "kubeadm join {{ hostvars['master']['join_string'] }}"
     when: "ansible_hostname not in hostvars['master']['k8s_node_list'].stdout"
 
+  - name: Check if node-ip fix is required
+    shell: >
+      grep -i '\-\-node-ip' /var/lib/kubelet/kubeadm-flags.env | wc -l
+    register: check_node_fix
+
+  - name: Fix node-ip
+    lineinfile:
+      path: /var/lib/kubelet/kubeadm-flags.env
+      regexp: '^KUBELET_KUBEADM_ARGS="(.*)$'
+      line: 'KUBELET_KUBEADM_ARGS="--node-ip {{ansible_enp0s8.ipv4.address }} \1'
+      backrefs: yes
+      state: present
+    when: check_node_fix.stdout == "0"
+
+  - name: Reload system
+    systemd:
+      daemon_reload: yes
+    when: check_node_fix.stdout == "0"
+
+  - name: Reboot
+    reboot:
+      reboot_timeout: 60
+      post_reboot_delay: 5  
+      connect_timeout: 5
+    when: check_node_fix.stdout == "0"
