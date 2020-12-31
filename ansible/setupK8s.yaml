@@ -153,10 +153,17 @@
 
   - name: Reboot
     reboot:
-      reboot_timeout: 45
-      post_reboot_delay: 20  
+      reboot_timeout: 60
+      post_reboot_delay: 5  
       connect_timeout: 5
     when: check_node_fix.stdout == "0"
+
+  - name: "Wait for k8s"
+    wait_for:
+      timeout: 120
+      port: 6443
+      sleep: 5
+      host: k8smaster
 
   - name: "Check in calico in installed"
     become: yes
