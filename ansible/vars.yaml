@@ -5,3 +5,6 @@ service_cidr: 10.200.0.0/16
 # overlay_network: [none,calico]
 overlay_network: "calico"
 # bootstrap_token: abcdef.1234567989abcdef
+#
+# Setup NFS server [true|false|
+install_nfs: true

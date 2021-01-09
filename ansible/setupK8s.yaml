@@ -14,6 +14,7 @@
   vars:
     master_ip: "{{ hostvars['master']['master_ip'] }}"
     k8s_version: 1.18
+    install_nfs: false
 
   vars_files:
   -  "./vars.yaml"
@@ -44,6 +45,12 @@
          state: present
          update_cache: yes
          force: yes
+
+  - name: "Install nfs server"
+    apt:
+      pkg: "nfs-common"
+      state: present
+    when: install_nfs == true
 
   - name: "Hold kubeadm package version"
     dpkg_selections:
@@ -215,11 +222,46 @@
   - name: "Set join string"
     set_fact:
       join_string: "--token {{ real_bootstrap_token.stdout }} k8smaster:6443 --discovery-token-ca-cert-hash sha256:{{ca_cert_hash.stdout}}"
+  
+  - name: "Create nfs root"
+    file:
+      state: directory
+      path: /nfs/share
+    when: install_nfs == true
+
+  - name: "Export nfs"
+    lineinfile:
+      state: present
+      path: /etc/exports
+      line: "/nfs/share 10.{{ master_ip.split('.')[1] }}.{{ master_ip.split('.')[2] }}.*(rw,sync,no_subtree_check,no_root_squash)" 
+    when: install_nfs == true
+   
+  - name: "Export nfs update"
+    shell:
+      cmd: "exportfs -ra"
+    changed_when: false
+    when: install_nfs == true
+
+  - name: "Generate Key/pair"
+    become: true
+    become_user: vagrant
+    community.crypto.openssh_keypair:
+      path: /home/vagrant/.ssh/worker
+      regenerate: never
+
+  - name: "Register public key"
+    shell:
+      cmd: cat /home/vagrant/.ssh/worker.pub
+    register: ssh_public_key
 
 - name: Join worker
   hosts: worker
   serial: 1
   become: yes
+  vars:
+    install_nfs: false
+  vars_files:
+  - "./vars.yaml"
   tasks:
   - name: "Join"
     debug:
@@ -249,6 +291,26 @@
     systemd:
       daemon_reload: yes
     when: check_node_fix.stdout == "0"
+
+  - name: add public_key to known_host
+    ansible.posix.authorized_key:
+      key: "{{ hostvars['master']['ssh_public_key'].stdout }}"
+      user: root
+
+  - name: "Create nfs root"
+    file:
+      state: directory
+      path: /nfs/share
+    when: install_nfs == true
+
+  - name: "Mount nfs"
+    ansible.posix.mount:
+      path: /nfs/share
+      opts: rw,sync
+      fstype: nfs
+      state: mounted
+      src: "{{ hostvars['master']['master_ip'] }}:/nfs/share"
+    when: install_nfs == true
 
   - name: Reboot
     reboot:

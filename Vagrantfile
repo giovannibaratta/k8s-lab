@@ -3,7 +3,7 @@
 
 LAB_NAME = "CHANGEME"
 BOX = "geerlingguy/ubuntu1804"
-NODE_COUNT = 1
+NODE_COUNT = 2
 
 NET2_RANDOM = rand(0..255)
 NET3_RANDOM = rand(0..255)
