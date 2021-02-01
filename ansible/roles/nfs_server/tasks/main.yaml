@@ -1,0 +1,25 @@
+---
+- name: "Install nfs server"
+  apt:
+    pkg: "nfs-common"
+    state: present
+  when: install_nfs == true
+
+- name: "Create nfs root"
+  file:
+    state: directory
+    path: /nfs/share
+  when: install_nfs == true
+
+- name: "Export nfs"
+  lineinfile:
+    state: present
+    path: /etc/exports
+    line: "/nfs/share 10.{{ master_ip.split('.')[1] }}.{{ master_ip.split('.')[2] }}.*(rw,sync,no_subtree_check,no_root_squash)" 
+  when: install_nfs == true
+  
+- name: "Export nfs update"
+  shell:
+    cmd: "exportfs -ra"
+  changed_when: false
+  when: install_nfs == true

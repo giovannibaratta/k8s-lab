@@ -1,0 +1,132 @@
+---
+- name: "Get host ip address"
+  shell:
+    cmd: ip addr | grep 'scope global' | grep -v 10.0.2.15 | head -1 | cut -d' ' -f6 | cut -d'/' -f1
+  register: host_ip
+
+- name: "Set host ip fact"
+  set_fact:
+    host_ip: "{{ host_ip.stdout }}"
+
+- debug:
+    msg: "bootstrap_token {{ bootstrap_token }}"
+
+- name: "Print host ip"
+  debug:
+    msg: "{{ host_ip }}"
+
+- name: Init cluster
+  command:
+    argv:
+      - kubeadm
+      - "init" 
+      - "--apiserver-advertise-address={{ host_ip }}"
+      - "--control-plane-endpoint=k8smaster:6443"
+      - "--pod-network-cidr={{ pods_cidr }}"
+      - "--service-cidr={{ service_cidr }}"
+      - "--token={{ bootstrap_token }}"
+    creates: /var/lib/kubelet/config.yaml
+
+- name: Ensure .kube is present
+  file:
+    state: directory
+    path: "/home/vagrant/.kube/"
+    owner: vagrant
+    group: vagrant
+
+- name: Copy kube config file
+  copy:
+    src: "/etc/kubernetes/admin.conf"
+    dest: "/home/vagrant/.kube/config"
+    remote_src: yes
+    owner: vagrant
+    group: vagrant
+    mode: '0600'
+
+- name: "Copy kubeadm flags template"
+  template:
+    src: kubeadm_flags.env.j2
+    dest: /var/lib/kubelet/kubeadm-flags.env
+    backup: yes
+  register: kubeadm_flags_return
+
+- name: Check if kubelet reload is needed
+  shell: >
+    ps aux |
+    grep '/usr/bin/kubelet' |
+    grep -v 'grep' |
+    awk 'BEGIN { FS ="--node-ip " } ; { print $2 }' |
+    cut -d' ' -f1
+  register: check_node_fix
+
+- name: Reload systemctl daemon
+  systemd:
+    daemon_reload: yes
+    name: kubelet
+    state: restarted
+  when: check_node_fix.stdout != host_ip
+
+- name: "Check if calico in installed"
+  become: yes
+  become_user: vagrant
+  shell: >
+    kubectl get ds -n kube-system | grep calico-node | wc -l
+  register: calico_check
+  when: overlay_network == "calico"
+
+- name: "Push calico overlay template"
+  become: yes
+  become_user: vagrant
+  template:
+    src: calico.yaml.j2
+    dest: calico.yaml
+  when: (overlay_network == "calico") and
+        (calico_check.stdout == "0")
+
+- name: "Deploy calico"
+  become: yes
+  become_user: vagrant
+  shell: >
+    kubectl apply -f calico.yaml
+  when: (overlay_network == "calico") and
+        (calico_check.stdout == "0")
+
+- name: "Genereta discovery token ca cert hash"
+  shell: > 
+      openssl x509 -pubkey -in /etc/kubernetes/pki/ca.crt |
+      openssl rsa -pubin -outform der 2>/dev/null |
+      openssl dgst -sha256 -hex |
+      sed 's/ˆ.* //' |
+      cut -d' ' -f2
+  register: ca_cert_hash
+
+- name: "Retrieve bootstratp token"
+  shell: >
+      kubeadm token list |
+      grep "The default bootstrap token" |
+      head -1 |
+      cut -d' ' -f1
+  register: real_bootstrap_token
+
+- name: "Upload certs"
+  shell:
+    cmd: kubeadm init phase upload-certs --upload-certs | tail -1
+  register: certificate_key
+
+- name: "Set join facts"
+  set_fact:
+    bootstrap_token: "{{ real_bootstrap_token.stdout }}"
+    discovery_token_hash: "sha256:{{ ca_cert_hash.stdout }}"
+    certificate_key: "{{ certificate_key.stdout }}"
+
+- name: "Generate Key/pair"
+  become: true
+  become_user: vagrant
+  community.crypto.openssh_keypair:
+    path: /home/vagrant/.ssh/worker
+    regenerate: never
+
+- name: "Register public key"
+  shell:
+    cmd: cat /home/vagrant/.ssh/worker.pub
+  register: ssh_public_key

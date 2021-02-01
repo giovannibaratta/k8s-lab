@@ -1,0 +1,13 @@
+---
+- hosts: all
+  name: "Deploy load balancer"
+  become: true
+
+  vars:
+    haproxy_template: "haproxy_configuration.j2"
+    keepalived_eth: "eth1"
+
+  roles:
+    - haproxy
+
+    

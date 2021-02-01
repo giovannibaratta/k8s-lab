@@ -1,0 +1,21 @@
+---
+- name: "Install nfs server"
+  apt:
+    pkg: "nfs-common"
+    state: present
+  when: install_nfs == true
+
+- name: "Create nfs root"
+  file:
+    state: directory
+    path: /nfs/share
+  when: install_nfs == true
+
+- name: "Mount nfs"
+  ansible.posix.mount:
+    path: /nfs/share
+    opts: rw,sync
+    fstype: nfs
+    state: mounted
+    src: "{{ hostvars['master']['master_ip'] }}:/nfs/share"
+  when: install_nfs == true

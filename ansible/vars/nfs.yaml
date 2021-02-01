@@ -1,0 +1,2 @@
+# Setup NFS server [true|false]
+install_nfs: false

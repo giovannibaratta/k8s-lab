@@ -1,0 +1,77 @@
+---
+- name: "Version to be installed"
+  debug:
+    msg: "{{ k8s_version }}"
+
+- name: Add k8s apt key
+  apt_key:
+    state: present
+    url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+
+- name: Add k8s repo
+  apt_repository:
+    state: present
+    repo: deb http://apt.kubernetes.io/ kubernetes-xenial main
+
+- name: "Install docker & k8s"
+  apt:
+    pkg:
+    - "docker.io"
+    - "kubeadm={{ k8s_version }}"
+    - "kubelet={{ k8s_version }}"
+    - "kubectl={{ k8s_version }}"
+    state: present
+    update_cache: yes
+    force: yes
+
+- name: "Hold kubeadm package version"
+  dpkg_selections:
+    name: kubeadm
+    selection: hold
+
+- name: "Hold kubectl package version"
+  dpkg_selections:
+    name: kubectl
+    selection: hold
+
+- name: "Hold kubelet package version"
+  dpkg_selections:
+    name: kubelet
+    selection: hold
+
+- name: "Enable docker"
+  systemd:
+    name: 'docker'
+    enabled: yes
+    state: started
+
+- name: "Disable swap"
+  command: swapoff -a
+
+- name: "Comment swap in /etc/fstab"
+  lineinfile:
+    path: /etc/fstab
+    regexp: '^/dev/mapper/vagrant--vg-swap'
+    line: "# Swap removed"
+
+- name: "Print master-api-ip"
+  debug:
+    msg: "{{ master_api_ip }}"
+
+- name: "Check if master-api-ip is in resolv.conf"
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ master_api_ip }} k8smaster"
+    state: absent
+  check_mode: yes
+  changed_when: false
+  register: resolvlookup
+
+- name: "Add master-api-ip to resolv.conf"
+  lineinfile:
+    path: /etc/hosts
+    line: "{{ master_api_ip }} k8smaster"
+    insertbefore: "^127.+"
+    state: present
+    firstmatch: yes
+  changed_when: not resolvlookup.found

@@ -1,0 +1,117 @@
+---
+- name: Generate keepalived password
+  shell: tr -dc 'A-Za-z0-9' </dev/urandom | head -c 13
+  run_once: true
+  become: false
+  delegate_to: 127.0.0.1
+  register: keepalived_password
+
+- name: Set keepalived_password
+  set_fact:
+    keepalived_password: "{{keepalived_password.stdout_lines[0]}}"
+
+- debug:
+    msg: "VIP {{ loadbalancer_vip }}"
+
+- debug:
+    msg: "node_ip {{ master_node_ip }}"
+
+- name: "Add edge main repo"
+  lineinfile:
+    line: http://dl-3.alpinelinux.org/alpine/edge/main
+    path: /etc/apk/repositories
+    state: present
+
+- name: "Add edge community repo"
+  lineinfile:
+    line: http://dl-3.alpinelinux.org/alpine/edge/community
+    path: /etc/apk/repositories
+    state: present
+
+- name: "Install haproxy, keepalived & rsyslog"
+  apk:
+    name: haproxy, keepalived, rsyslog
+    no_cache: yes
+    state: present
+    update_cache: yes
+
+- debug:
+    msg: "{{ haproxy_template }}"
+
+- name: "Create rsyslog.d directory"
+  file:
+    state: directory
+    path: /etc/rsyslog.d
+
+- name: "Push rsyslog configuration"
+  template:
+    src: haproxy_rsyslog.conf.j2
+    dest: /etc/rsyslog.d/haproxy.conf
+
+- name: "Configure rsyslog to accept UDP"
+  lineinfile:
+    dest: /etc/rsyslog.conf
+    regexp: "{{ item.regexp }}"
+    line: "{{ item.line }}"
+    insertafter: "{{ item.after }}"
+  with_items:
+    - { regexp: '^#module\(load="imudp"\).*', line: 'module(load="imudp")', after: '# for parameters see http://www.rsyslog.com/doc/imudp.html' }
+    - { regexp: '^#input\(', line: 'input(', after: 'module\(load="imudp"\)'  }
+    - { regexp: '^#.*type="imudp"', line: '  type="imudp"', after: 'input\(' }
+    - { regexp: '^#.*port="514"', line: '  port="514"', after: '  type="imudp"' }
+    - { regexp: '^#\)', line: ')', after: '  port="514"' }
+
+- name: "Push haproxy configuration"
+  template:
+    src: "{{ haproxy_template }}"
+    dest: /etc/haproxy/haproxy.cfg
+    mode: '0644'
+
+- set_fact:
+    keepalived_role: "MASTER"
+    keepalived_priority: 255
+  when: inventory_hostname in groups['master']    
+
+- set_fact:
+    keepalived_role: "BACKUP"
+    keepalived_priority: 254
+  when: inventory_hostname in groups['backup']
+
+- debug:
+    msg: "Keepalived host role {{ keepalived_role }}"
+
+- name: "Push keepalived configuration"
+  template:
+    src: "keepalived.conf.j2"
+    dest: /etc/keepalived/keepalived.conf
+    mode: '0644'
+
+- name: "Enable binding non-local-ip (persistent)"
+  ansible.posix.sysctl:
+    name: net.ipv4.ip_nonlocal_bind
+    value: '1'
+    sysctl_file: /etc/sysctl.d/net.ipv4.ip_nonlocal_bind.conf
+    reload: yes
+
+- name: "Enable binding non-local-ip (current)"
+  copy:
+    dest: "/etc/sysctl.d/nonlocalbinding"
+    content: "net.ipv4.ip_nonlocal_bind=1"
+
+- name: "Enable keepalived at boot"
+  service:
+    name: keepalived
+    enabled: true
+    state: reloaded
+
+- name: "Enable haproxy at boot"
+  service:
+    name: haproxy
+    enabled: true
+    state: reloaded
+
+- name: "Enable rsyslog at boot"
+  service:
+    name: rsyslog
+    enabled: true
+    state: reloaded

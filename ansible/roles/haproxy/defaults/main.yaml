@@ -1,0 +1,2 @@
+---
+haproxy_template: "haproxy_default.j2"

@@ -1,0 +1,10 @@
+# Kubernetes version
+# k8s_version: 1.20*
+
+# Setup NFS server [prereq|full]. 
+# Prereq will only install the packages needed to deploy a cluster.
+# Full will create the cluster and join the workers.
+k8s_installation_type: full #prereq
+
+# Install an onverlay network [none|calico]
+#overlay_network: "calico"

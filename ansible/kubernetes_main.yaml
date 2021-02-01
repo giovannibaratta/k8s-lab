@@ -1,0 +1,65 @@
+---
+- name: "Generate bootstrap token"
+  hosts: all
+  vars_files: ['vars/kubernetes.yaml']
+
+  tasks:
+  - name: Generate bootstrap_token part1
+    shell: tr -dc 'a-z0-9' </dev/urandom | head -c 6
+    run_once: true
+    become: false
+    delegate_to: 127.0.0.1
+    register: bootstrap_token_part1
+    when: k8s_installation_type == "full"
+
+  - name: Generate bootstrap_token part2
+    shell: tr -dc 'a-z0-9' </dev/urandom | head -c 16
+    run_once: true
+    become: false
+    delegate_to: 127.0.0.1
+    register: bootstrap_token_part2
+    when: k8s_installation_type == "full"
+
+  - name: Set kubernetes bootstrap token
+    set_fact:
+      bootstrap_token: "{{ bootstrap_token_part1.stdout_lines[0] }}.{{ bootstrap_token_part2.stdout_lines[0] }}"
+    when: k8s_installation_type == "full"
+  
+  - name: Print bootstrap token
+    debug:
+      msg: "{{ bootstrap_token }}"
+    when: k8s_installation_type == "full"
+
+- name: "Install kubernetes prerequisites" 
+  hosts: all
+  become: true
+  roles:
+    - role: kubernetes_prerequisites
+
+- name: "Create cluster on masters manager"
+  hosts: masters_manager
+  become: true
+  vars_files: ['vars/kubernetes.yaml', 'vars/nfs.yaml']
+  
+  roles:
+    - role: kubernetes_master
+      when: k8s_installation_type == "full"
+    - role: nfs_server
+
+- name: "Join other masters"
+  hosts: masters:!masters_manager
+  become: true
+  vars_files: ['vars/kubernetes.yaml']
+
+  roles:
+    - role: kubernetes_master_ha
+      when: k8s_installation_type == "full"
+
+- hosts: workers
+  become: true
+  vars_files: ['vars/kubernetes.yaml', 'vars/nfs.yaml']
+
+  roles:
+    - role: kubernetes_worker
+      when: k8s_installation_type == "full"
+    - role: nfs_client

@@ -1,0 +1,5 @@
+---
+pods_cidr: 10.100.0.0/16
+service_cidr: 10.200.0.0/16
+# overlay_network: [none,calico]
+overlay_network: "calico"
