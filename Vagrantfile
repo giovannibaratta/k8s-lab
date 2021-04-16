@@ -3,8 +3,8 @@
 
 LAB_NAME = "CHANGEME"
 K8S_BOX = "geerlingguy/ubuntu1804"
-MASTER_NODE_COUNT = 3
-WORKER_NODE_COUNT = 2
+MASTER_NODE_COUNT = 1
+WORKER_NODE_COUNT = 1
 # Last octect
 IP_SEED=0
 MASTER_NET4_START = 20
@@ -91,7 +91,7 @@ Vagrant.configure("2") do |config|
             node.vm.hostname = "worker#{index}"
             node.vm.network "private_network", ip: workers_ip_array[index-1]
             node.vm.provider "virtualbox" do |worker|
-                worker.name = "#{LAB_NAME}K8sWorker#{index}"
+                worker.name = "#{LAB_NAME}-k8sWorker#{index}"
                 worker.cpus = 1
                 worker.memory = 1024
             end
