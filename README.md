@@ -1,1 +1,1 @@
-# cka-lab
+# k8s-lab
